@@ -30,6 +30,8 @@ authors:
     email: iem@uic.edu
     orcid: https://orcid.org/0000-0003-1919-4303
 version: 1.0.0
+doi: 10.5281/zenodo.23748608
+date-released: 2026-10-28
 license: MIT
 repository-code: https://github.com/maRce10/feeding-behavior-covariates-harvestmen
 url: https://marce10.github.io/feeding-behavior-covariates-harvestmen/
@@ -47,4 +49,4 @@ keywords:
   - defensive behavior
   - associative learning
   - brms
-# Add a DOI (e.g., Zenodo release) and, after acceptance, the paper as preferred-citation.
+# After acceptance, add the paper as preferred-citation.

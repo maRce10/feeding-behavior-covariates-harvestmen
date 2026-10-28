@@ -15,9 +15,21 @@ This site contains the analyses behind the manuscript (in preparation). We expos
 ## Main results
 
 ::: {.figure-gallery}
+### Substrate use over time
+
 ![Posterior predicted probabilities of substrate use across sampling periods.](output/figures/fig2_substrate_use_by_sampling_period.png)
 
+Each point is the model-predicted probability that an individual was found on rock, sand or other substrates (twigs, leaves, mesh or the centre of the enclosure) at a given sampling period. Bars are 95% credible intervals. Substrate use was recorded three times a day, so periods 1–9 correspond to the three acclimation days and periods 10–24 to the five training days. Rock and sand are averaged over the two treatment groups, so each was the food substrate for half of the animals and the aversive substrate for the other half.
+
+Over the course of the experiment, individuals were increasingly found on other substrates (from about 0.39 to 0.49). Sand use declined (from about 0.31 to 0.24) and rock use changed little (from about 0.30 to 0.27). The trend was gradual and began during acclimation, before any training. Adding an interaction between experimental phase and food substrate did not improve the model's predictive performance. This gives no evidence that animals learned to avoid the substrate paired with the aversive stimulus or to prefer the one paired with food.
+
+### Defensive behavior over time
+
 ![Posterior predicted probabilities of defensive behaviors across sampling periods.](output/figures/fig4_behavior_by_sampling_period.png)
+
+Each point is the model-predicted probability that an individual showed a given defensive behavior in the 5 s after the aversive stimulus. Bars are 95% credible intervals. Animals were stimulated twice a day for five days, giving 10 sampling periods. An individual could show more than one behavior in the same trial, so the probabilities do not sum to 1.
+
+Fleeing was by far the most common response, and its probability stayed at about 0.8 throughout. Across repeated exposures, escape became less likely (from about 0.40 to 0.24) and bobbing became more likely (from about 0.30 to 0.42). Chemical release and freezing stayed low and stable (about 0.23–0.26). Sampling period was the most important predictor of defensive behavior: every model without it ranked last in the leave-one-out comparison (Supplementary Table 4).
 :::
 
 ## Reproducibility

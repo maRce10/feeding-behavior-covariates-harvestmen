@@ -1,0 +1,144 @@
+---
+format:
+  pdf:
+    documentclass: article
+    papersize: letter
+    geometry: "margin=0.7in"
+    classoption: landscape
+    fontsize: 10pt
+    include-in-header:
+      text: |
+        \usepackage{booktabs}
+        \usepackage{longtable}
+        \usepackage{threeparttable}
+        \usepackage{float}
+        \usepackage{array}
+        \usepackage{graphicx}
+        \usepackage{caption}
+        \captionsetup[table]{labelformat=empty, justification=raggedright, singlelinecheck=false}
+        \pagenumbering{gobble}
+params:
+  analysis: "substrate"
+  table_no: 1
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+# LOO model-selection table for the substrate-use (Supplementary Table 1)
+# or behavioral-response (Supplementary Table 2) candidate model sets.
+# Rendered by scripts/render_supplementary_tables.R
+
+library(loo)
+library(knitr)
+options(kableExtra.latex.load_packages = FALSE)
+library(kableExtra)
+
+root <- rprojroot::find_root(rprojroot::is_rstudio_project)
+
+analysis <- params$analysis
+
+loos <- readRDS(file.path(root, "data/processed", paste0("loo_list_", analysis, ".rds")))
+
+# loo_compare() returns models sorted by elpd, with names in its `model` column
+lc <- as.data.frame(loo_compare(loos))
+mod_order <- lc$model
+
+weights <- loo_model_weights(loos, method = "stacking")
+
+# fixed-effect structure of each model (random intercept for individual
+# is included in all models)
+fixed_terms <- sapply(mod_order, function(m) {
+  f <- readRDS(file.path(root, "data/processed", paste0("fits_", analysis), paste0(m, ".rds")))
+  # multivariate behavior models share the same predictors across responses
+  form <- if (!is.null(f$formula$forms)) f$formula$forms[[1]]$formula else f$formula$formula
+  rhs <- deparse1(form[[3]])
+  gsub("\\s*\\+\\s*\\(1 \\| [[:alpha:]]+\\)", "", rhs)
+})
+
+pretty_terms <- function(x) {
+  x <- gsub("mo\\(sampling_period\\)", "sampling period (mo)", x)
+  x <- gsub("mo\\([Nn]umber_of_legs\\)", "number of legs (mo)", x)
+  x <- gsub("field_season", "field season", x)
+  x <- gsub("Treatment_food_substrate|food_substrate", "food substrate", x)
+  x <- gsub("[Ss]ensory_leg_missing", "sensory leg missing", x)
+  x <- gsub("leg_condition", "leg condition", x)
+  x <- gsub(" \\* ", " $\\\\times$ ", x)
+  x
+}
+
+tab <- data.frame(
+  rank = seq_along(mod_order),
+  model = gsub("_", "\\\\_", mod_order),
+  terms = pretty_terms(fixed_terms),
+  elpd_diff = sprintf("%.2f", lc$elpd_diff),
+  se_diff = sprintf("%.2f", lc$se_diff),
+  elpd_loo = sprintf("%.2f (%.2f)", lc$elpd_loo, lc$se_elpd_loo),
+  p_loo = sprintf("%.1f", lc$p_loo),
+  looic = sprintf("%.1f", lc$looic),
+  weight = sprintf("%.3f", as.numeric(weights[mod_order])),
+  row.names = NULL
+)
+
+max_k <- max(sapply(loos, function(x) max(x$diagnostics$pareto_k)))
+n_obs <- nrow(loos[[1]]$pointwise)
+
+desc <- switch(
+  analysis,
+  substrate = paste(
+    "of the", length(loos), "candidate Bayesian categorical mixed models of substrate use",
+    "(rock, sand or other substrate) in Opiliones."
+  ),
+  behavior = paste(
+    "of the", length(loos), "candidate Bayesian multivariate Bernoulli mixed models of behavioral",
+    "responses (flee, escape, bobbing, chemical release and freeze) to an aversive stimulus in Opiliones."
+  )
+)
+
+fit_desc <- switch(
+  analysis,
+  substrate = "categorical family",
+  behavior = "Bernoulli family with logit link for each of the five behaviors, residual correlations not modeled; predictors were identical across behaviors"
+)
+```
+
+```{r}
+kbl(
+  tab,
+  format = "latex",
+  booktabs = TRUE,
+  linesep = "",
+  escape = FALSE,
+  align = c("r", "l", "p{9.5cm}", "r", "r", "r", "r", "r", "r"),
+  col.names = c(
+    "Rank", "Model", "Fixed effects",
+    "$\\Delta$elpd", "SE $\\Delta$elpd",
+    "elpd\\textsubscript{loo} (SE)", "p\\textsubscript{loo}",
+    "LOOIC", "Stacking weight"
+  ),
+  caption = paste0(
+    "\\textbf{Supplementary Table ", params$table_no, ".} ",
+    "Approximate leave-one-out cross-validation (PSIS-LOO) comparison ", desc,
+    " Models are ranked by expected log pointwise predictive density (elpd\\textsubscript{loo})."
+  )
+) |>
+  kable_styling(latex_options = c("hold_position", "scale_down"), font_size = 9) |>
+  footnote(
+    general = paste0(
+      "$\\\\Delta$elpd: difference in elpd\\\\textsubscript{loo} relative to the top-ranked model; ",
+      "SE $\\\\Delta$elpd: standard error of that difference; ",
+      "p\\\\textsubscript{loo}: effective number of parameters; LOOIC = $-2 \\\\times$ elpd\\\\textsubscript{loo}. ",
+      "Stacking weights were computed with loo::loo\\\\_model\\\\_weights(method = \"stacking\"). ",
+      "All models include a random intercept for individual and were fitted with brms (", fit_desc,
+      "; 4 chains, 4,000 iterations each). ",
+      "(mo) denotes monotonic effects. ",
+      "N = ", format(n_obs, big.mark = ","), " observations. ",
+      "All Pareto $k$ values were $<$ 0.7 (maximum = ", sprintf("%.2f", max_k), ")."
+    ),
+    threeparttable = TRUE,
+    escape = FALSE,
+    general_title = "Note."
+  )
+```

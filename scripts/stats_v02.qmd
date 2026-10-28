@@ -1,0 +1,2058 @@
+---
+title: Statistical analysis
+subtitle: feeding behavior covariates in harvestmen
+author: <a href="https://marce10.github.io/">Marcelo Araya-Salas</a>
+date: "`r Sys.Date()`"
+toc: true
+toc-depth: 5
+toc-location: left
+number-sections: true
+highlight-style: pygments
+format:
+  html:
+    df-print: kable
+    code-fold: true
+    code-tools: true
+    css: qmd.css
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r set root directory}
+#| eval: true
+#| echo: false
+
+# set working directory 
+knitr::opts_knit$set(root.dir =  "..")
+
+```
+
+```{r add link to github repo}
+#| eval: true
+#| output: asis
+#| echo: false
+
+# print link to github repo if any
+# if (file.exists("./.git/config")){
+#   config <- readLines("./.git/config")
+#   url <- grep("url",  config, value = TRUE)
+#   url <- gsub("\\turl = |.git$", "", url)
+#   if (nchar(url) > 1)
+#   cat("\nSource code and data found at [", url, "](", url, ")", sep = "")
+#   }
+
+```
+
+```{r setup style}
+#| message: false
+#| warning: false
+
+# options to customize chunk outputs
+knitr::opts_chunk$set(
+  tidy.opts = list(width.cutoff = 65), 
+  tidy = TRUE,
+  message = FALSE
+ )
+
+```
+
+<!-- skyblue box -->
+
+::: {.alert .alert-info}
+# Purpose {.unnumbered .unlisted}
+
+- Evaluate covariates of feeding behavior in harvestmen
+
+:::
+
+# Load packages and custom functions {.unnumbered .unlisted}
+
+```{r load packages}
+#| warning: false
+#| message: false
+
+# knitr is require for creating html/pdf/word reports
+# formatR is used for soft-wrapping code
+
+# install/ load packages
+sketchy::load_packages(
+  packages = c(
+    "knitr",
+    "formatR",
+    "brms",
+    "readxl",
+    "ggplot2",
+    "brmsish",
+    "viridis",
+    "marginaleffects",
+    "loo",
+    "posterior"
+  )
+)
+
+theme_paper <- function() {
+
+  list(
+
+    theme_classic(base_size = 14),
+
+    scale_color_viridis_d(
+      option = "G",
+      end = 0.9
+    ),
+
+    scale_fill_viridis_d(
+      option = "G",
+      end = 0.9
+    )
+
+  )
+
+}
+
+
+plot_model_average_forest <- function(
+    fits,
+    loos,
+    delta = 2,
+    weighting = c("stacking", "pseudobma")) {
+
+  weighting <- match.arg(weighting)
+
+  library(brms)
+  library(loo)
+  library(posterior)
+  library(ggplot2)
+
+  ## select top models
+
+  loo_tab <- loo_compare(loos)
+
+  keep <- rownames(loo_tab)[loo_tab[, "elpd_diff"] >= -delta]
+
+  fits <- fits[keep]
+  loos <- loos[keep]
+
+  ## stacking weights
+
+  weights <- loo_model_weights(
+    loos,
+    method = weighting
+  )
+
+  ## posterior draws from each model
+
+  draws <- lapply(
+    fits,
+    function(fit){
+
+      d <- as_draws_df(fit)
+
+      d <- d[
+        ,
+        grepl("^b_", names(d)),
+        drop = FALSE
+      ]
+
+      d
+
+    }
+  )
+
+  ## union of all parameters
+
+  pars <- Reduce(
+    union,
+    lapply(draws, names)
+  )
+
+  ## make all models contain the same parameters
+
+  for(i in seq_along(draws)){
+
+    missing <- setdiff(
+      pars,
+      names(draws[[i]])
+    )
+
+    if(length(missing) > 0){
+
+      for(p in missing)
+        draws[[i]][[p]] <- 0
+
+    }
+
+    draws[[i]] <- draws[[i]][, pars]
+
+  }
+
+  ## weighted posterior draws
+
+  avg_draws <- draws[[1]]
+
+  avg_draws[,] <- 0
+
+  for(i in seq_along(draws)){
+
+    avg_draws <- avg_draws +
+      weights[i] * draws[[i]]
+
+  }
+
+  ## summarize posterior
+
+  forest <- data.frame(
+
+    parameter = pars,
+
+    Estimate = apply(
+      avg_draws,
+      2,
+      median
+    ),
+
+    Q2.5 = apply(
+      avg_draws,
+      2,
+      quantile,
+      .025
+    ),
+
+    Q97.5 = apply(
+      avg_draws,
+      2,
+      quantile,
+      .975
+    )
+
+  )
+
+  ## remove intercepts
+
+  forest <- subset(
+    forest,
+    !grepl("Intercept", parameter)
+  )
+
+  ## convert to odds ratios
+
+  forest$Estimate <- exp(forest$Estimate)
+  forest$Q2.5 <- exp(forest$Q2.5)
+  forest$Q97.5 <- exp(forest$Q97.5)
+
+  ## parse names
+
+  forest$parameter <- sub(
+    "^b_",
+    "",
+    forest$parameter
+  )
+
+  forest$behavior <- sub(
+    "_.*",
+    "",
+    forest$parameter
+  )
+
+  forest$term <- sub(
+    "^[^_]+_",
+    "",
+    forest$parameter
+  )
+
+  ## transparency
+
+  forest$alpha <- ifelse(
+    forest$Q2.5 <= 1 &
+      forest$Q97.5 >= 1,
+    0.4,
+    1
+  )
+
+  ## plot
+
+  ggplot(
+    forest,
+    aes(
+      x = Estimate,
+      y = reorder(term, Estimate)
+    )
+  ) +
+
+    geom_vline(
+      xintercept = 1,
+      linetype = 2
+    ) +
+
+    geom_pointrange(
+      aes(
+        xmin = Q2.5,
+        xmax = Q97.5,
+        alpha = alpha
+      )
+    ) +
+
+    scale_alpha_identity() +
+
+    facet_wrap(
+      ~behavior,
+      scales = "free_y"
+    ) +
+
+    theme_classic() +
+
+    labs(
+      x = "Model-averaged odds ratio",
+      y = NULL
+    )
+
+}
+
+save_contrast_plot <- function(
+    model,
+    variable,
+    xlab,
+    prefix,
+    path = "./data/processed/"
+){
+
+prefix <- variable
+  outfile <- file.path(
+    path,
+    paste0(prefix, "_contrast.rds")
+  )
+
+  # return cached result if available
+
+  if(file.exists(outfile)){
+
+    # message(prefix, ": already exists, loading.")
+
+    return(
+      readRDS(outfile)
+    )
+
+  }
+
+  # compute contrasts
+  if (variable == "number_of_legs"){
+var_list <- list("pairwise")
+names(var_list) <- variable  
+variable <- var_list
+}
+
+  comp <- avg_comparisons(
+    model,
+    variables = variable,
+    type = "response"
+  )
+
+  # keep only the columns needed for the paper
+
+  comp <- data.frame(
+    term      = comp$term,
+    group     = comp$group,
+    contrast  = comp$contrast,
+    estimate  = comp$estimate,
+    conf.low  = comp$conf.low,
+    conf.high = comp$conf.high,
+    stringsAsFactors = FALSE
+  )
+
+  # build figure from the lightweight data frame
+
+  gg <- ggplot(
+    comp,
+    aes(
+      x = estimate,
+      y = group,
+      colour = group
+    )
+  ) +
+    geom_vline(
+      xintercept = 0,
+      linetype = 2
+    ) +
+    geom_pointrange(
+      aes(
+        xmin = conf.low,
+        xmax = conf.high
+      ),
+      linewidth = 0.5
+    ) +
+    labs(
+      x = xlab,
+      y = NULL,
+      colour = "Predicted substrate"
+    ) + 
+      guides(colour = "none") + 
+    theme_paper()
+
+  if (prefix == "number_of_legs") {
+    gg <- gg +
+        facet_wrap(~contrast)
+  }
+
+  
+ out <- list(
+  contrast = knitr::kable(
+    comp,
+    digits = 3,
+    col.names = c(
+      "Predictor",
+      "Response",
+      "Contrast",
+      "Estimate",
+      "Lower 95% CI",
+      "Upper 95% CI"
+    ),
+    row.names = FALSE
+  ),
+  plot = gg
+)
+
+  saveRDS(
+    out,
+    outfile
+  )
+
+  message(prefix, ": saved.")
+
+  beepr::beep(2)
+  out
+
+}
+
+```
+
+# Substrate
+
+```{r read data}
+# read data
+substrate <- read_excel("./data/raw/data_v02.xlsx", sheet = "Substrate")
+
+
+# convert tibble to data.frame
+substrate <- as.data.frame(substrate)
+
+# prepare data
+
+# reshape data into long format
+
+substrate_long <- reshape(
+  substrate,
+  varying = grep("^Substrate_", names(substrate)),
+  v.names = "substrate",
+  timevar = "timepoint",
+  times = names(substrate)[grep("^Substrate_", names(substrate))],
+  direction = "long"
+)
+
+names(substrate_long)[ncol(substrate_long)] <- "Individual"
+
+# 4. extract day
+
+substrate_long$day <- as.numeric(
+  sub(
+    ".*day-([0-9]+).*",
+    "\\1",
+    substrate_long$timepoint
+  )
+)
+
+# 5. extract phase
+
+substrate_long$phase <- sub(
+  "Substrate_([^_]+)_.*",
+  "\\1",
+  substrate_long$timepoint
+)
+
+# 6. extract time of day
+
+substrate_long$time <- sub(
+  ".*_([0-9]+AM|[0-9]+PM)$",
+  "\\1",
+  substrate_long$timepoint
+)
+
+# 7. convert variables
+
+substrate_long$substrate <- factor(substrate_long$substrate)
+substrate_long$phase <- factor(substrate_long$phase)
+substrate_long$time <- factor(substrate_long$time)
+substrate_long$Individual <- factor(substrate_long$Individual)
+
+# clean substrate category names
+
+substrate_long$substrate <- make.names(substrate_long$substrate)
+
+# convert to factor
+
+substrate_long$substrate <- as.character(substrate_long$substrate)
+
+substrate_long$substrate <- trimws(substrate_long$substrate)
+
+substrate_long$substrate <- gsub("[^A-Za-z0-9_]", "_", substrate_long$substrate)
+
+# remove NAs
+substrate_long <- substrate_long[substrate_long$substrate != "NA_", ]
+
+
+substrate_long$substrate <- factor(
+  substrate_long$substrate,
+  levels = unique(substrate_long$substrate)
+)
+
+names(substrate_long) <- gsub("treatment_", "", tolower(names(substrate_long)))
+
+names(substrate_long)[names(substrate_long) == "substrate"] <- "preferred_substrate"
+
+```
+
+## Statistical modeling
+
+- Substrate use was analyzed using **Bayesian categorical generalized linear mixed models**.
+
+- The response variable was **preferred substrate**, modeled as a categorical response.
+
+- The data were formatted so that each row represented a unique **individual × sampling period** observation.
+
+- Individual identity was included as a **random intercept** to account for repeated observations of the same individual through time.
+
+- Candidate fixed effects included:
+  - `sampling_period`
+  - `food_substrate`
+  - `number_of_legs`
+  - `sensory_leg_missing`
+  - `phase`
+
+- All models included `field_season` as a fixed effect to account for potential differences between the two sampling seasons.
+
+- Both `sampling_period` and `number_of_legs` were modeled as **monotonic effects** (`mo(sampling_period)` and `mo(number_of_legs)`) to account for their ordered nature while allowing the magnitude of change between consecutive levels to vary.
+
+- Rather than using model selection to identify a single model for inference, we adopted a **hypothesis-driven predictor importance framework**. Specifically, we evaluated the predictive contribution of each biological predictor using a targeted set of candidate models and then based biological inference on the full additive model.
+
+- The candidate model set consisted of:
+  - a full additive model including all biological predictors,
+  - a model including only `sampling_period`,
+  - one model for each biological predictor individually,
+  - one model including `sampling_period` plus each biological predictor individually,
+  - one full model omitting `sampling_period`,
+  - one leave-one-predictor-out model for each remaining biological predictor,
+  - one model including the biologically motivated interaction between `phase` and `food_substrate`, and
+  - one model including the biologically motivated three-way interaction among `phase`, `food_substrate`, and `leg_condition`.
+
+- The interaction models were included to test two specific biological hypotheses:
+  - whether changes in substrate use between acclimation and training depended on which substrate contained food (`phase × food_substrate`), and
+  - whether this relationship differed between intact and autotomized individuals (`phase × food_substrate × leg_condition`).
+
+- This strategy allowed us to evaluate:
+  - the predictive ability of each predictor when considered individually,
+  - whether each biological predictor improved predictive performance beyond temporal variation captured by `sampling_period`,
+  - the unique predictive contribution of each predictor after accounting for all remaining predictors,
+  - and whether the hypothesized learning-related interactions were supported.
+
+- In total, **17 competing models** were fitted:
+  - 1 full additive model,
+  - 1 sampling-period-only model,
+  - 4 single-predictor models,
+  - 4 sampling-period-plus-single-predictor models,
+  - 1 full model without `sampling_period`,
+  - 4 leave-one-predictor-out models,
+  - 2 interaction models.
+
+- Default weakly informative priors implemented in `brms` were used.
+
+- Candidate models were compared using **approximate leave-one-out cross-validation (LOO)**. Differences in expected log predictive density (Δelpd) were used to quantify the predictive contribution of each predictor and to evaluate support for the biologically motivated interaction hypotheses, rather than to select a single model for inference.
+
+```{r}
+substrate_long$individual <- factor(substrate_long$individual)
+substrate_long$food_substrate <- factor(substrate_long$food_substrate)
+substrate_long$leg_condition <- factor(substrate_long$leg_condition)
+substrate_long$sensory_leg_missing <- factor(substrate_long$sensory_leg_missing)
+
+# convert time: 8AM _> 8, 2PM -> 14, 7PM -> 19
+substrate_long$time <- sapply( as.character(substrate_long$time), function(x) switch(
+x,
+  "8AM" = 8,
+  "2PM" = 14,
+  "7PM" = 19
+))
+
+substrate_long <- substrate_long[order(substrate_long$individual, substrate_long$day,  as.numeric(substrate_long$time)),]
+
+# a continous number for the sequence of sampling events 
+substrate_long$sampling_period <- 1
+
+for (i in 2:nrow(substrate_long)) {
+  if (substrate_long$individual[i] == substrate_long$individual[i - 1]) {
+    substrate_long$sampling_period[i] <- substrate_long$sampling_period[i - 1] + 1
+  } else {
+    substrate_long$sampling_period[i] <- 1
+  }
+}
+
+# collapse levels
+substrate_long$preferred_substrate <- ifelse(substrate_long$preferred_substrate %in% c("rock", "sand"), as.character(substrate_long$preferred_substrate), "other_substrate")
+
+# sampling period as ordered factor
+
+substrate_long$sampling_period <-
+  factor(
+    substrate_long$sampling_period,
+    ordered = TRUE
+  )
+
+# number of legs as ordered
+substrate_long$number_of_legs <-
+  factor(
+    substrate_long$number_of_legs,
+    ordered = TRUE
+  )
+
+```
+
+```{r}
+#| eval: false
+
+
+# biological predictors
+
+preds <- c(
+  "food_substrate",
+  "number_of_legs",
+  "sensory_leg_missing",
+  "phase"
+)
+
+#--------------------------------------------------
+# Candidate model formulas
+#--------------------------------------------------
+
+formulas <- list()
+
+# helper function
+
+make_terms <- function(x){
+
+  ifelse(
+    x == "number_of_legs",
+    "mo(number_of_legs)",
+    x
+  )
+
+}
+
+#--------------------------------------------------
+# Full model
+#--------------------------------------------------
+
+full_terms <- make_terms(preds)
+
+formulas[["full"]] <-
+
+  as.formula(
+    paste(
+      "preferred_substrate ~",
+      "mo(sampling_period) +",
+      "field_season +",
+      paste(full_terms, collapse = " + "),
+      "+ (1 | individual)"
+    )
+  )
+
+#--------------------------------------------------
+# Full model with phase × food_substrate interaction
+#--------------------------------------------------
+
+interaction_terms <- c(
+  "food_substrate * phase",
+  "mo(number_of_legs)",
+  "sensory_leg_missing"
+)
+
+formulas[["full_interaction"]] <-
+
+  as.formula(
+    paste(
+      "preferred_substrate ~",
+      "mo(sampling_period) +",
+      "field_season +",
+      paste(interaction_terms, collapse = " + "),
+      "+ (1 | individual)"
+    )
+  )
+
+#--------------------------------------------------
+# Full model with phase × food_substrate × leg_condition
+#--------------------------------------------------
+
+interaction_terms <- c(
+  "food_substrate * phase * leg_condition",
+  "mo(number_of_legs)",
+  "sensory_leg_missing"
+)
+
+formulas[["full_three_way_interaction"]] <-
+
+  as.formula(
+    paste(
+      "preferred_substrate ~",
+      "mo(sampling_period) +",
+      "field_season +",
+      paste(interaction_terms, collapse = " + "),
+      "+ (1 | individual)"
+    )
+  )
+
+#--------------------------------------------------
+# Sampling period only
+#--------------------------------------------------
+
+formulas[["sampling_period_only"]] <-
+
+  preferred_substrate ~
+  mo(sampling_period) +
+  field_season +
+  (1 | individual)
+
+#--------------------------------------------------
+# Single predictor models
+#--------------------------------------------------
+
+for(p in preds){
+
+  pred_term <- make_terms(p)
+
+  formulas[[paste0("single_", p)]] <-
+
+    as.formula(
+      paste(
+        "preferred_substrate ~",
+        "field_season +",
+        pred_term,
+        "+ (1 | individual)"
+      )
+    )
+
+  formulas[[paste0("single_sampling_period_", p)]] <-
+
+    as.formula(
+      paste(
+        "preferred_substrate ~",
+        "mo(sampling_period) +",
+        "field_season +",
+        pred_term,
+        "+ (1 | individual)"
+      )
+    )
+
+}
+
+#--------------------------------------------------
+# Leave-one-predictor-out models
+#--------------------------------------------------
+
+# remove sampling period
+
+formulas[["drop_sampling_period"]] <-
+
+  as.formula(
+    paste(
+      "preferred_substrate ~",
+      "field_season +",
+      paste(full_terms, collapse = " + "),
+      "+ (1 | individual)"
+    )
+  )
+
+# remove one biological predictor
+
+for(p in preds){
+
+  keep <- setdiff(preds, p)
+
+  keep_terms <- make_terms(keep)
+
+  formulas[[paste0("drop_", p)]] <-
+
+    as.formula(
+      paste(
+        "preferred_substrate ~",
+        "mo(sampling_period) +",
+        "field_season +",
+        paste(keep_terms, collapse = " + "),
+        "+ (1 | individual)"
+      )
+    )
+
+}
+
+#--------------------------------------------------
+# Fit models
+#--------------------------------------------------
+
+fits <- vector(
+  "list",
+  length(formulas)
+)
+
+for(i in seq_along(formulas)){
+
+  model_name <- names(formulas)[i]
+
+  cat(
+    "\n=====================================\n",
+    "Fitting model", i, "of", length(formulas), "\n",
+    model_name, "\n",
+    deparse(formulas[[i]]), "\n",
+    "=====================================\n"
+  )
+
+  fits[[i]] <- brm(
+
+    formula = formulas[[i]],
+
+    family = categorical(),
+
+    data = substrate_long,
+
+    chains = 4,
+    cores = 4,
+    iter = 4000,
+
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 15
+    ),
+
+    file = paste0(
+      "./data/processed/fits_substrate/",
+      model_name,
+      ".rds"
+    ),
+
+    file_refit = "on_change"
+
+  )
+
+}
+
+names(fits) <- names(formulas)
+
+saveRDS(
+  fits,
+  "./data/processed/fit_list_substrate.rds"
+)
+
+#--------------------------------------------------
+# Model comparison
+#--------------------------------------------------
+
+loos <- lapply(
+  fits,
+  loo
+)
+
+saveRDS(
+  loos,
+  "./data/processed/loo_list_substrate.rds"
+)
+
+#--------------------------------------------------
+# Save global model
+#--------------------------------------------------
+
+global_fit <- fits[["full"]]
+
+saveRDS(
+  global_fit,
+  "./data/processed/global_model_fit_substrate.rds"
+)
+
+```
+
+::: {.alert .alert-info}
+
+## Model Selection Results
+
+```{r}
+
+loos <- readRDS("./data/processed/loo_list_substrate.rds")
+
+# remove null (field_season only)
+
+loos <- loos[!names(loos) %in% c("null")]
+
+loo_comp <- loo_compare(loos)
+
+# loo_compare() sorts models by elpd; keep its own model labels
+# (do not reassign names(loos), which is in the original unsorted order)
+loo_comp <- as.data.frame(loo_comp)[, c(
+  "model",
+  "elpd_diff",
+  "se_diff"
+)]
+
+
+kable(
+ loo_comp[, c("model", "elpd_diff", "se_diff")],
+  digits = 3,
+ col.names = c(
+     "model",
+    "Δelpd",
+    "SE Δelpd"
+), row.names = FALSE
+)
+
+```
+
+
+
+### Overall patterns
+
+- **The full additive model was among the best-supported models but was not the top-ranked model.** The model without `sensory_leg_missing` ranked first; the full additive model ranked second (Δelpd = −0.65, SE = 0.70), followed by the model without `number_of_legs` (Δelpd = −0.81, SE = 1.11). These three models are practically indistinguishable in expected predictive performance.
+
+- **Food substrate was the strongest predictor.** Removing `food_substrate` produced the largest loss in predictive performance (Δelpd = −8.03, SE = 4.04 relative to the top-ranked model), and all models without it ranked at the bottom of the candidate set.
+
+- **Sampling period and experimental phase contributed modestly.** Removing either reduced predictive performance by about 3 elpd units (`drop_sampling_period`: Δelpd = −2.97, SE = 2.90; `drop_phase`: Δelpd = −3.30, SE = 2.86), differences of about one standard error.
+
+- **Leg condition contributed little.** Removing `number_of_legs` or `sensory_leg_missing` did not reduce predictive performance, consistent with the posterior contrasts below, whose 95% credible intervals overlap zero.
+
+- **Neither interaction model improved predictive performance.** Relative to the full additive model, adding the `phase` × `food_substrate` interaction gave Δelpd = −1.10 (SE = 1.81), and the three-way interaction among `phase`, `food_substrate`, and `leg_condition` gave Δelpd = −2.84 (SE = 3.46). These results provide little evidence that changes in substrate use between acclimation and training depended on the rewarded substrate, or on the combination of rewarded substrate and leg condition.
+
+- Posterior inference was based on the full additive model, which was among the best-supported models and allows the effect of each a priori predictor to be estimated while accounting for the others. The following analyses estimate **posterior average contrasts in predicted probabilities** derived from this model (except for `sampling_period`, for which posterior predicted probabilities are presented directly because it was modeled as a monotonic effect). These contrasts quantify the expected change in the probability of using each substrate associated with changing one predictor while averaging over the observed values of all remaining predictors. Effect sizes are therefore expressed as changes in predicted probability (percentage-point differences).
+
+---
+
+### Effect of food substrate
+
+```{r}
+
+global_fit <- readRDS("./data/processed/global_model_fit_substrate.rds")
+
+food <- save_contrast_plot(
+  global_fit,
+  variable = "food_substrate",
+  xlab = "Change in predicted probability\n(food on sand − food on rock)"
+)
+
+food$contrast
+
+food$plot
+
+```
+
+#### How to interpret the posterior contrasts on this figure
+
+This figure summarizes the effect of the experimental treatment (`food_substrate`) on the model-predicted probability of using each substrate.
+
+The treatment has two levels:
+
+- **Rock**: food was presented on rock.
+- **Sand**: food was presented on sand.
+
+The contrast shown is **Sand − Rock**, meaning that each estimate is calculated as
+
+> Predicted probability when food was presented on **sand** − Predicted probability when food was presented on **rock**
+
+while averaging over all other predictors in the model.
+
+Therefore:
+
+- **Positive values** indicate that animals were **more likely** to use that substrate when food was presented on **sand** than when food was presented on **rock**.
+- **Negative values** indicate that animals were **less likely** to use that substrate when food was presented on **sand** than when food was presented on **rock**.
+- If the 95% credible interval overlaps zero, there is little evidence that the treatment affected the probability of using that substrate.
+
+- For example, the estimate for **rock** is approximately **+0.21**. This means that, according to the fitted model, animals for which food was presented on **sand** were predicted to have a **21 percentage-point higher probability of using rock** than animals for which food was presented on **rock**, after accounting for the other predictors in the model.
+
+- Similarly, the estimate for **sand** is approximately **−0.20**, indicating that animals for which food was presented on **sand** had a **20 percentage-point lower probability of using sand** than animals for which food was presented on **rock**.
+
+- There was little evidence that food substrate affected the probability of using **other substrates**, as the posterior mean was close to zero and the 95% credible interval overlapped zero.
+
+- Overall, these results indicate that food substrate primarily influenced the relative probabilities of using the two experimentally manipulated substrates (rock and sand), with little effect on the probability of using other available substrates.
+
+---
+
+### Effect of sampling period
+
+- The graph shows the posterior predicted probability of using each substrate in each sampling period (with 95% credible intervals), averaged over the observed values of all other predictors.
+
+```{r}
+#| eval: false
+
+substrate <- avg_predictions(
+  global_fit,
+  variables = "sampling_period",
+  type = "response"
+)
+
+substrate <- as.data.frame(substrate)
+
+substrate$group <- factor(
+  substrate$group,
+  levels = c("other_substrate", "rock", "sand")
+)
+
+ggsub1 <- ggplot(
+  substrate,
+  aes(
+    x = sampling_period,
+    y = estimate,
+    colour = group,
+    group = group
+  )
+) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2.8) +
+  geom_errorbar(
+    aes(
+      ymin = conf.low,
+      ymax = conf.high
+    ),
+    width = 0
+  ) +
+  labs(
+    x = "Sampling period",
+    y = "Posterior predicted probability",
+    colour = "Predicted substrate"
+  ) +
+  theme_paper()
+
+
+ggsub1 <- list(
+  plot = ggsub1,
+  data = substrate
+)
+
+
+
+saveRDS(ggsub1, "./data/processed/ggsub1.RDS")
+
+```
+
+```{r}
+
+ggsub1 <- readRDS("./data/processed/ggsub1.RDS")
+
+kable(
+  ggsub1$data,
+  digits = 1,
+  row.names = FALSE
+)
+
+ggsub1$plot
+
+# 
+# sampling <- save_contrast_plot(
+#     model = global_fit,
+#   variable = "sampling_period",
+#   xlab = "Change in predicted probability (adjacent sampling periods)"
+# )
+# 
+# # sampling$contrast
+# 
+# 
+# dat <- sampling$plot$data
+# dat$period <- gsub(" - 1", "", dat$contrast)
+# 
+# dat$period <- factor(
+#   dat$period,
+#   levels = 1:24
+# )
+# 
+# pd <- position_dodge(width = 0.4)
+# 
+# ggplot(
+#     dat,
+#     aes(
+#       x = period,
+#       y = estimate,
+#       colour = group
+#     )
+#   ) +
+#     geom_hline(
+#       yintercept = 0,
+#       linetype = 2
+#     ) +
+#     geom_pointrange(
+#       aes(
+#         ymin = conf.low,
+#         ymax = conf.high,
+#       ),
+#         position = pd,  
+#       linewidth = 0.5
+#     ) +
+#     labs(
+#       x = "Change in predicted probability compared to period 1",
+#       y = "Sampling period",
+#       colour = "Predicted substrate"
+#     ) + 
+#     theme_paper()
+
+```
+
+
+- The predicted probability of using **other substrates** increased steadily across sampling periods, from about 0.39 in the first period to about 0.49 in the last.
+
+- The predicted probability of using **sand** decreased from about 0.31 to 0.24, the largest decline among the three categories.
+
+- **Rock** use declined only slightly, from about 0.30 to 0.27.
+
+- These results indicate a gradual temporal shift towards other substrates, accompanied by reduced use of sand and, to a lesser extent, rock. Note that sampling period contributed only modestly to predictive performance (see model selection results above).
+
+---
+
+### Effect of phase
+
+```{r}
+
+phase <- save_contrast_plot(
+  global_fit,
+  variable = "phase",
+  xlab = "Change in predicted probability (training - acclimation)"
+)
+
+phase$contrast
+
+phase$plot
+
+```
+
+- **Other substrates:** During the training phase, harvestmen had a higher predicted probability of using other substrates than during acclimation ($\Delta P \approx 0.05$, 95% CI: 0.01–0.10), providing evidence of increased use of these substrates over time.
+
+- **Sand:** Harvestmen had a lower predicted probability of using sand during training than during acclimation ($\Delta P \approx -0.04$, 95% CI: -0.08 to -0.01), indicating reduced sand use during the training phase.
+
+- **Rock:** The estimated difference in the probability of using rock between the training and acclimation phases was small ($\Delta P \approx -0.01$), with the 95% credible interval overlapping zero, indicating little evidence of a change in rock use between phases.
+
+- **Overall:** The transition from acclimation to training was associated with a modest shift in substrate use, characterized by reduced use of sand and increased use of other substrates, while rock use remained relatively unchanged.
+
+---
+
+### Effect of number of legs
+
+```{r}
+
+legs <- save_contrast_plot(
+  global_fit,
+  variable = "number_of_legs",
+  xlab = "Change in predicted probability"
+)
+
+legs$contrast
+
+legs$plot
+
+```
+
+- **Seven vs. six legs:** The predicted probabilities of using rock, sand, and other substrates were similar between seven- and six-legged harvestmen. For all substrate types, the estimated differences were small and the 95% credible intervals overlapped zero, providing little evidence that the loss of a single leg altered substrate use.
+
+- **Eight vs. six legs:** Eight-legged harvestmen tended to have a lower predicted probability of using sand and a higher predicted probability of using other substrates than six-legged individuals, but the 95% credible intervals overlapped zero for all substrate types, indicating little evidence of differences in substrate use.
+
+- **Eight vs. seven legs:** Predicted probabilities of substrate use were also similar between eight- and seven-legged harvestmen. Although eight-legged individuals showed a slight tendency toward lower sand use and greater use of other substrates, the 95% credible intervals overlapped zero for all comparisons.
+
+- **Overall:** There was little evidence that substrate use differed among harvestmen with six, seven, or eight legs. Unlike the contrast between six- and eight-legged individuals shown previously, pairwise comparisons among adjacent leg-number categories revealed only small differences with considerable uncertainty.
+
+---
+
+### Effect of sensory leg condition
+
+```{r}
+
+sensory <- save_contrast_plot(
+  global_fit,
+  variable = "sensory_leg_missing",
+  xlab = "Change in predicted probability (sensory missing - intact)"
+)
+
+sensory$contrast
+
+sensory$plot
+
+```
+
+- **Sand:** Sensory-impaired harvestmen had a slightly higher predicted probability of using sand than intact individuals ($\Delta P \approx 0.03$), but the 95% credible interval overlapped zero, indicating little evidence of a difference in sand use.
+
+- **Rock:** Sensory-impaired harvestmen tended to have a lower predicted probability of using rock than intact individuals ($\Delta P \approx -0.05$), although the 95% credible interval overlapped zero, providing little evidence of a treatment effect.
+
+- **Other substrates:** The predicted probability of using other substrates was slightly higher for sensory-impaired than intact harvestmen ($\Delta P \approx 0.02$), but the 95% credible interval also overlapped zero, indicating little evidence of a difference.
+
+- **Overall:** There was little evidence that sensory impairment altered substrate use. Although sensory-impaired individuals showed a weak tendency toward greater use of sand and other substrates and reduced use of rock, all estimated differences were small relative to their uncertainty.
+
+----
+
+
+:::
+
+
+::: {.callout-tip}
+
+
+## Overall biological interpretation
+
+- Food substrate was the strongest predictor of substrate use. Individuals used the substrate **without** food more often: when food was presented on sand, the probability of using rock was 0.21 higher and the probability of using sand 0.20 lower than when food was presented on rock. In the experimental design, the substrate without food is the one associated with the aversive stimulus, on which individuals were released after each trial.
+- Because adding the `phase` × `food_substrate` interaction did not improve predictive performance, this pattern did not clearly differ between the acclimation and training phases, which argues against learned preference or avoidance.
+- Sampling period and experimental phase had modest effects: use of other substrates increased over time and during training, whereas use of sand decreased.
+- There was little evidence that number of legs or sensory leg condition affected substrate use.
+- Neither interaction model improved predictive performance; the full additive model was among the best-supported models and was used for inference.
+
+:::
+
+
+# Behavior
+
+## Statistical modeling
+
+- Behavioral responses were analyzed using **Bayesian multivariate generalized linear mixed models**.
+
+- The response consisted of a multivariate matrix of five binary behavioral variables:
+  - `FLEE`
+  - `ESCAPE`
+  - `BOBBING`
+  - `CHEMICAL_RELEASE`
+  - `FREEZE`
+
+- Each behavior was modeled using a **Bernoulli distribution** with a **logit link**.
+
+- The data were reformatted so that each row represented a unique **individual × sampling period** observation, with the five behaviors forming the multivariate response.
+
+- Individual identity was included as a **random intercept** to account for repeated observations of the same individual through time.
+
+- Candidate fixed effects included:
+  - `sampling_period`
+  - `Treatment_food_substrate`
+  - `Number_of_legs`
+  - `Sensory_leg_missing`
+
+- All models included `field_season` as a fixed effect to account for potential differences between the two sampling seasons.
+
+- Both `sampling_period` and `Number_of_legs` were modeled as **monotonic effects** (`mo(sampling_period)` and `mo(Number_of_legs)`) to account for their ordered nature while allowing the magnitude of change between consecutive levels to vary.
+
+- Rather than evaluating all possible combinations of predictors, we used a **hypothesis-driven candidate-model approach** to assess the relative importance of each predictor.
+
+- The candidate model set consisted of:
+  - a full model including all biological predictors,
+  - a model including only `sampling_period`,
+  - one model for each biological predictor individually,
+  - one model including `sampling_period` plus each biological predictor individually,
+  - one full model omitting `sampling_period`,
+  - and one leave-one-predictor-out model for each remaining biological predictor.
+
+- This strategy allowed us to evaluate:
+  - the explanatory power of each predictor individually,
+  - whether each predictor improved model performance beyond temporal variation,
+  - and the unique contribution of each predictor after accounting for all other predictors.
+
+- In total, **12 competing models** were fitted:
+  - 1 full model,
+  - 1 sampling-period-only model,
+  - 3 single-predictor models,
+  - 3 sampling-period-plus-single-predictor models,
+  - 1 full model without `sampling_period`,
+  - 3 leave-one-predictor-out models.
+
+- Default weakly informative priors implemented in `brms` were used.
+
+- Competing models were compared using **approximate leave-one-out cross-validation (LOO)**, and support for competing hypotheses was evaluated using differences in expected log predictive density (Δelpd; the model with the highest elpd was considered the best-supported model).
+
+```{r}
+#| eval: false
+
+behavior <- read_excel("./data/raw/data_v02.xlsx", sheet = "behavior")
+
+# convert tibble to data.frame
+
+behavior <- as.data.frame(behavior)
+
+# convert metadata variables
+
+behavior$Individual <- factor(behavior$Individual)
+behavior$Treatment_food_substrate <- factor(behavior$Treatment_food_substrate)
+behavior$Leg_condition <- factor(behavior$Leg_condition)
+behavior$Sensory_leg_missing <- factor(behavior$Sensory_leg_missing)
+
+# identify metadata columns
+
+meta_cols <- names(behavior)[
+  1:match("Sensory_leg_missing", names(behavior))
+]
+
+# identify behavior columns
+
+behavior_cols <- names(behavior)[
+  (match("Sensory_leg_missing", names(behavior)) + 1):ncol(behavior)
+]
+
+# extract sampling periods
+
+sampling_periods <- unique(
+  sub("_.*", "", behavior_cols)
+)
+
+# initialize list
+
+behavior_list <- vector(
+  "list",
+  length(sampling_periods)
+)
+
+names(behavior_list) <- sampling_periods
+
+# reshape to one row per individual × sampling period
+
+for (i in seq_along(sampling_periods)) {
+
+  sp <- sampling_periods[i]
+
+  cols <- grep(
+    paste0("^", sp, "_"),
+    names(behavior),
+    value = TRUE
+  )
+
+  dat <- behavior[, c(meta_cols, cols)]
+
+  names(dat)[
+    (length(meta_cols) + 1):ncol(dat)
+  ] <- sub(
+    paste0("^", sp, "_"),
+    "",
+    cols
+  )
+
+  beh_cols <- names(dat)[
+    (length(meta_cols) + 1):ncol(dat)
+  ]
+
+  for (b in beh_cols) {
+
+    dat[[b]] <- ifelse(
+      tolower(trimws(dat[[b]])) == "no",
+      0,
+      1
+    )
+
+    dat[[b]] <- as.integer(dat[[b]])
+
+  }
+
+  dat$sampling_period <- sp
+
+  behavior_list[[i]] <- dat
+}
+
+# combine sampling periods
+
+behavior_long <- do.call(
+  rbind,
+  behavior_list
+)
+
+# convert sampling period
+behavior_long <- behavior_long[order(behavior_long$Individual, behavior_long$sampling_period), ]
+
+
+behavior_long$sampling_period <- 1
+
+for (i in 2:nrow(behavior_long)) {
+  if (behavior_long$Individual[i] == behavior_long$Individual[i - 1]) {
+    behavior_long$sampling_period[i] <- behavior_long$sampling_period[i - 1] + 1
+  } else {
+    behavior_long$sampling_period[i] <- 1
+  }
+}
+
+
+behavior_long$sampling_period  <- factor(
+  behavior_long$sampling_period,
+  ordered = TRUE
+)
+
+names(behavior_long)[1] <- "field_season"
+
+behavior_long$Number_of_legs <-
+  factor(
+    behavior_long$Number_of_legs,
+    ordered = TRUE
+  )
+
+    # response variables
+# response variables
+# response variables
+
+# response variables
+
+behaviors <- c(
+  "FLEE",
+  "ESCAPE",
+  "BOBBING",
+  "CHEMICAL_RELEASE",
+  "FREEZE"
+)
+
+# ordered predictors
+
+behavior_long$sampling_period <-
+  factor(
+    behavior_long$sampling_period,
+    ordered = TRUE
+  )
+
+behavior_long$Number_of_legs <-
+  factor(
+    behavior_long$Number_of_legs,
+    ordered = TRUE
+  )
+
+# biological predictors
+
+preds <- c(
+  "Treatment_food_substrate",
+  "Number_of_legs",
+  "Sensory_leg_missing"
+)
+
+#--------------------------------------------------
+# Candidate model formulas
+#--------------------------------------------------
+
+formulas <- list()
+
+# helper: convert predictors to model terms
+
+make_terms <- function(x){
+
+  ifelse(
+    x == "Number_of_legs",
+    "mo(Number_of_legs)",
+    x
+  )
+
+}
+
+#--------------------------------------------------
+# Full model
+#--------------------------------------------------
+
+full_terms <- make_terms(preds)
+
+formulas[["full"]] <-
+
+  paste(
+    "~ mo(sampling_period) +",
+    "field_season +",
+    paste(full_terms, collapse = " + "),
+    "+ (1 | Individual)"
+  )
+
+#--------------------------------------------------
+# Sampling period only
+#--------------------------------------------------
+
+formulas[["sampling_period_only"]] <-
+  "~ mo(sampling_period) + field_season + (1 | Individual)"
+
+#--------------------------------------------------
+# Single predictor models
+#--------------------------------------------------
+
+for(p in preds){
+
+  pred_term <- make_terms(p)
+
+  # predictor only
+
+  formulas[[paste0("single_", p)]] <-
+
+    paste(
+      "~ field_season +",
+      pred_term,
+      "+ (1 | Individual)"
+    )
+
+  # sampling period + predictor
+
+  formulas[[paste0("single_sampling_period_", p)]] <-
+
+    paste(
+      "~ mo(sampling_period) + field_season +",
+      pred_term,
+      "+ (1 | Individual)"
+    )
+
+}
+
+#--------------------------------------------------
+# Leave-one-predictor-out models
+#--------------------------------------------------
+
+# remove sampling period
+
+formulas[["drop_sampling_period"]] <-
+
+  paste(
+    "~ field_season +",
+    paste(full_terms, collapse = " + "),
+    "+ (1 | Individual)"
+  )
+
+# remove one biological predictor
+
+for(p in preds){
+
+  keep <- setdiff(preds, p)
+
+  keep_terms <- make_terms(keep)
+
+  formulas[[paste0("drop_", p)]] <-
+
+    paste(
+      "~ mo(sampling_period) + field_season +",
+      paste(keep_terms, collapse = " + "),
+      "+ (1 | Individual)"
+    )
+
+}
+
+#--------------------------------------------------
+# Fit models
+#--------------------------------------------------
+
+fits_behavior <- vector(
+  "list",
+  length(formulas)
+)
+
+for(i in seq_along(formulas)){
+
+  model_name <- names(formulas)[i]
+
+  cat(
+    "\n=====================================\n",
+    "Fitting model", i, "of", length(formulas), "\n",
+    model_name, "\n",
+    formulas[[i]], "\n",
+    "=====================================\n"
+  )
+
+  mv_formula <-
+
+    Reduce(
+      `+`,
+      lapply(
+        behaviors,
+        function(b){
+
+          bf(
+            as.formula(
+              paste(
+                b,
+                formulas[[i]]
+              )
+            ),
+            family = bernoulli()
+          )
+
+        }
+      )
+    ) +
+    set_rescor(FALSE)
+
+  fits_behavior[[i]] <- brm(
+
+    formula = mv_formula,
+
+    data = behavior_long,
+
+    chains = 4,
+    cores = 4,
+    iter = 4000,
+
+    control = list(
+      adapt_delta = 0.99,
+      max_treedepth = 15
+    ),
+
+    file = paste0(
+      "./data/processed/fits_behavior/",
+      model_name,
+      ".rds"
+    ),
+
+    file_refit = "on_change"
+
+  )
+
+}
+
+names(fits_behavior) <- names(formulas)
+
+saveRDS(
+  fits_behavior,
+  "./data/processed/fit_list_behavior.rds"
+)
+
+#--------------------------------------------------
+# Save global model
+#--------------------------------------------------
+
+saveRDS(
+  fits_behavior[["full"]],
+  "./data/processed/global_model_fit_behavior.rds"
+)
+
+#--------------------------------------------------
+# Model comparison
+#--------------------------------------------------
+
+loo_behavior <- lapply(
+  fits_behavior,
+  loo
+)
+
+saveRDS(
+  loo_behavior,
+  "./data/processed/loo_list_behavior.rds"
+)
+```
+
+::: {.alert .alert-info}
+
+## Model Selection Results
+
+```{r}
+
+loos <- readRDS("./data/processed/loo_list_behavior.rds")
+
+loo_behavior <- loo_compare(
+  loos
+)
+
+
+# loo_compare() sorts models by elpd; keep its own model labels
+# (do not reassign names(loos), which is in the original unsorted order)
+loo_behavior <- as.data.frame(loo_behavior)[, c(
+  "model",
+  "elpd_diff",
+  "se_diff"
+)]
+
+
+kable(
+ loo_behavior[, c("model", "elpd_diff", "se_diff")],
+  digits = 3,
+ col.names = c(
+     "model",
+    "Δelpd",
+    "SE Δelpd"
+), row.names = FALSE
+)
+
+```
+
+### Overall patterns
+
+- **Sampling period was the strongest predictor of behavioral responses.** All models excluding `sampling_period` ranked at the bottom of the candidate set (e.g., `drop_sampling_period`: Δelpd = −13.06, SE = 6.01 relative to the top-ranked model).
+
+- **The other predictors added little predictive value beyond sampling period.** The top-ranked model included `sampling_period` and `Treatment_food_substrate`, but it was practically indistinguishable from the sampling-period-only model (Δelpd = −0.35, SE = 1.55) and from the model with `sampling_period` and `Number_of_legs` (Δelpd = −0.38, SE = 2.28).
+
+- **The full model was not among the top-ranked models.** It ranked eighth of twelve (Δelpd = −3.84, SE = 2.02), indicating that including all predictors did not improve expected out-of-sample predictive performance.
+
+- Posterior inference was nonetheless based on the full model, to estimate the effect of each a priori predictor while accounting for the others; given their limited predictive contribution, the effects of the non-temporal predictors should be interpreted cautiously. The following analyses estimate **posterior average contrasts in predicted probabilities** derived from the full model (except for sampling period, for which posterior predicted probabilities are presented directly). These contrasts quantify the expected change in the probability of each behavior associated with changing one predictor while averaging over the observed values of all remaining predictors. Effect sizes are therefore expressed as changes in predicted probability (percentage-point differences).
+
+
+---
+ 
+### Effect of food substrate
+  
+```{r}
+#| eval: false
+
+global_fit_beh <- readRDS("./data/processed/global_model_fit_behavior.rds")
+
+
+
+food_diff <- avg_comparisons(
+  global_fit_beh,
+  variables = "Treatment_food_substrate",
+  type = "response"
+)
+
+food_diff <- as.data.frame(food_diff)
+
+food_diff$group <- tools::toTitleCase(tolower(food_diff$group))
+
+food_diff
+
+ggbeh1 <- ggplot(
+  food_diff,
+  aes(
+    x = estimate,
+    y = group,
+    colour = group
+  )
+) +
+  geom_vline(
+    xintercept = 0,
+    linetype = 2
+  ) +
+  geom_pointrange(
+    aes(
+      xmin = conf.low,
+      xmax = conf.high
+    ),
+    linewidth = 0.5
+  ) +
+  labs(
+    x = "Change in predicted probability (sand - rock)",
+    y = NULL,
+    colour = "Behavior"
+  ) +
+  theme_paper()
+
+
+ggbeh1 <- list(
+  plot = ggbeh1,
+  data = food_diff
+)
+
+
+
+saveRDS(ggbeh1, "./data/processed/ggbeh1.RDS")
+
+```
+
+```{r}
+
+ggbeh1 <- readRDS("./data/processed/ggbeh1.RDS")
+
+kable(
+  ggbeh1$data,
+  digits = 1,
+  row.names = FALSE
+)
+
+ggbeh1$plot
+
+
+```
+
+- **Escape** was less likely when food was presented on **sand** than on **rock** (difference ≈ −0.11, 95% CrI: −0.21 to −0.02). This was the only behavioral contrast in the analysis whose 95% credible interval excluded zero.
+
+- **Bobbing**, **chemical release**, and **freeze** also tended to be less likely when food was on sand, but their 95% credible intervals overlapped zero.
+
+- **Flee** was the most common behavioral response overall (predicted probability ≈ 0.8) and was largely unaffected by food substrate.
+
+- Overall, food substrate mainly affected the probability of escape. Food substrate was included in the top-ranked model, although that model was practically indistinguishable from the sampling-period-only model.
+
+---
+
+### Effect of sampling period
+
+```{r}
+#| eval: false
+
+sampling <- avg_predictions(
+  global_fit_beh,
+  variables = "sampling_period",
+  type = "response"
+)
+
+sampling <- as.data.frame(sampling)
+
+# title case for plot
+sampling$group <- tools::toTitleCase(tolower(sampling$group))
+
+pd <- position_dodge(width = 0.5)
+
+ggbeh2 <- ggplot(
+  sampling,
+  aes(
+    x = sampling_period,
+    y = estimate,
+    color = group,
+    group = group
+  )
+) +
+  geom_point(position = pd, size = 2.8) +
+  geom_line(position = pd) +
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    position = pd,
+    width = 0
+  ) +
+  scale_x_continuous(
+    breaks = seq(
+      min(sampling$sampling_period),
+      max(sampling$sampling_period),
+      by = 1
+    )
+  ) +
+  labs(
+    y = "Posterior predicted probability",
+    x = "Sampling period",
+    color = "Behavior"
+  ) +
+  theme_paper()
+
+ggbeh2 <- list(
+  plot = ggbeh2,
+  data = sampling
+)
+
+
+saveRDS(ggbeh2, "./data/processed/ggbeh2.RDS")
+
+```
+
+```{r}
+
+ggbeh2 <- readRDS("./data/processed/ggbeh2.RDS")
+
+# kable(
+#   ggbeh2$data,
+#   digits = 1,
+#   row.names = FALSE
+# )
+
+ggbeh2$plot
+
+```
+
+- Behavioral responses changed systematically over the course of the experiment, although the magnitude and direction of these changes differed among behaviors.
+
+- **Bobbing** increased steadily across sampling periods, with the predicted probability rising from approximately 0.30 at the beginning of the experiment to about 0.42 by the final sampling period.
+
+- **Escape** showed the opposite pattern, declining progressively over time from approximately 0.40 to 0.24, indicating that this response became less likely as the experiment progressed.
+
+- **Flee** was consistently the most common behavioral response throughout the experiment (predicted probability ≈ 0.80) and exhibited little temporal variation.
+
+- **Chemical release** remained relatively stable across sampling periods, with only minor fluctuations around a predicted probability of 0.26.
+
+- **Freeze** also showed little evidence of temporal change, maintaining a consistently low predicted probability throughout the experiment.
+
+- Overall, temporal changes in defensive behavior were primarily driven by a gradual shift from **escape** toward **bobbing**, whereas the probabilities of **flee**, **chemical release**, and **freeze** remained largely unchanged.
+
+---
+
+### Effect of number of legs
+
+```{r}
+#| eval: false
+ 
+n_legs_diff <- avg_comparisons(
+  global_fit_beh,
+  variables = list("Number_of_legs" = "pairwise"),
+  type = "response"
+)
+
+n_legs_diff <- as.data.frame(n_legs_diff)
+
+n_legs_diff$group <- tools::toTitleCase(tolower(n_legs_diff$group))
+
+
+ggbeh4 <- ggplot(
+  n_legs_diff,
+  aes(
+    x = estimate,
+    y = group,
+    colour = contrast
+  )
+) +
+  geom_vline(
+    xintercept = 0,
+    linetype = 2
+  ) +
+  geom_pointrange(
+    aes(
+      xmin = conf.low,
+      xmax = conf.high
+    ),
+    position = position_dodge(width = 0.5),
+    linewidth = 0.5
+  ) +
+  labs(
+    x = "Change in predicted probability",
+    y = NULL,
+    colour = "Contrast"
+  ) + facet_wrap(~contrast) +
+  theme_paper()
+
+
+n_legs <- avg_predictions(
+  global_fit_beh,
+  variables = "Number_of_legs",
+  type = "response"
+)
+
+
+
+ggbeh4 <- list(
+  plot = ggbeh4,
+  data = n_legs_diff
+)
+
+
+saveRDS(ggbeh4, "./data/processed/ggbeh4.RDS")
+
+```
+
+```{r}
+
+ggbeh4 <- readRDS("./data/processed/ggbeh4.RDS")
+
+kable(
+  ggbeh4$data,
+  digits = 1,
+  row.names = FALSE
+)
+
+ggbeh4$plot
+
+```
+
+- The 95% credible intervals of all number-of-legs contrasts overlapped zero, and removing `Number_of_legs` did not reduce predictive performance (see model selection results above). Differences among leg conditions should therefore be interpreted as tendencies.
+
+- **Escape** showed the largest differences: individuals with **eight legs** tended to escape more often than individuals with six legs (difference ≈ 0.18, 95% CrI: −0.001 to 0.33) or seven legs (≈ 0.08, 95% CrI: −0.0003 to 0.25), and seven-legged individuals tended to escape more often than six-legged individuals (≈ 0.08, 95% CrI: −0.0002 to 0.19).
+
+- **Bobbing** and **freeze** tended to be more likely in individuals with **six legs** (e.g., freeze, eight vs. six legs ≈ −0.11, 95% CrI: −0.34 to 0.11), but these differences were small and uncertain.
+
+- **Flee** and **chemical release** varied little with the number of legs.
+
+- Overall, there is weak evidence that individuals with all legs escaped more often, with no clear differences in the other behaviors.
+
+---
+
+### Effect of sensory leg condition
+
+```{r}
+#| eval: false
+
+
+sensory_leg_diff <- avg_comparisons(
+  global_fit_beh,
+  variables = "Sensory_leg_missing",
+  type = "response"
+)
+
+sensory_leg_diff <- as.data.frame(sensory_leg_diff)
+
+sensory_leg_diff$group <- tools::toTitleCase(tolower(sensory_leg_diff$group))
+
+
+ggbeh5 <- ggplot(
+  sensory_leg_diff,
+  aes(
+    x = estimate,
+    y = group,
+    colour = group
+  )
+) +
+  geom_vline(
+    xintercept = 0,
+    linetype = 2
+  ) +
+  geom_pointrange(
+    aes(
+      xmin = conf.low,
+      xmax = conf.high
+    ),
+    linewidth = 0.5
+  ) +
+  labs(
+    x = "Change in predicted probability\n(Sensory missing − intact)",
+    y = NULL,
+    colour = "Behavior"
+  ) +
+  theme_paper()
+
+ggbeh5 <- list(
+  plot = ggbeh5,
+  data = sensory_leg_diff
+)
+
+saveRDS(ggbeh5, "./data/processed/ggbeh5.RDS")
+
+```
+
+```{r}
+
+ggbeh5 <- readRDS("./data/processed/ggbeh5.RDS")
+
+kable(
+  ggbeh5$data,
+  digits = 1,
+  row.names = FALSE
+)
+
+ggbeh5$plot
+
+```
+
+- There was **little evidence** that the loss of sensory legs substantially affected the probability of exhibiting any individual behavior, as the 95% credible intervals for all estimated contrasts overlapped zero.
+
+- Although uncertain, individuals missing sensory legs tended to exhibit **lower probabilities of fleeing, bobbing, and chemical release**, whereas the probabilities of **escape** and **freeze** appeared to be slightly higher than in intact individuals.
+
+- The largest estimated effect was a reduction in the probability of **fleeing** (approximately 0.09), but the associated uncertainty was sufficiently large that this effect was not clearly distinguishable from zero.
+
+- Overall, these results provide **little evidence that sensory leg loss consistently alters the behavioral repertoire** of individuals. While the posterior estimates suggest possible shifts among behaviors, the uncertainty surrounding these estimates indicates that any effects are likely modest relative to the variation among individuals.
+
+```{r}
+#| eval: false
+
+fits_behavior <- readRDS(
+  "./data/processed/fit_list_behavior.rds"
+)
+loos <- readRDS("./data/processed/loo_list_behavior.rds")
+
+
+# extract fixed effects
+pmaf_beh <- plot_model_average_forest(
+    fits_behavior,
+    loos,
+    delta = 2
+)
+
+saveRDS(pmaf_beh, "./data/processed/pmaf_beh.RDS")
+
+```
+
+
+```{r}
+# pmaf_beh <- readRDS("./data/processed/pmaf_beh.RDS")
+# 
+# pmaf_beh
+```
+
+:::
+
+
+::: {.callout-tip}
+
+## Overall biological interpretation
+
+- Sampling period was the strongest predictor of behavioral responses: over the experiment, bobbing became more likely and escape less likely, whereas fleeing (the most common response), chemical release, and freezing remained stable.
+- Food substrate, number of legs, and sensory leg condition added little predictive value beyond sampling period, and the full model was not among the top-ranked models.
+- Escape was less likely when food was on sand than on rock; this was the only contrast whose 95% credible interval excluded zero.
+- Individuals with all legs tended to escape more often than those missing legs, but this difference was uncertain, and there was little evidence that sensory leg loss affected any behavior.
+
+:::
+
+::: {.callout-note collapse="true"}
+
+## Session information {.unnumbered .unlisted}
+
+```{r session info}
+#| echo: false
+
+# if devtools is installed use devtools::session_info()
+if (requireNamespace("devtools", quietly = TRUE)) {
+  devtools::session_info()
+} else {
+  sessionInfo()
+}
+```
+
+:::
+

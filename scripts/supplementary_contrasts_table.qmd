@@ -1,0 +1,175 @@
+---
+format:
+  pdf:
+    documentclass: article
+    papersize: letter
+    geometry: "margin=0.8in"
+    fontsize: 10pt
+    include-in-header:
+      text: |
+        \usepackage{booktabs}
+        \usepackage{longtable}
+        \usepackage{threeparttable}
+        \usepackage{threeparttablex}
+        \usepackage{float}
+        \usepackage{array}
+        \usepackage{graphicx}
+        \usepackage{caption}
+        \captionsetup[table]{labelformat=empty, justification=raggedright, singlelinecheck=false}
+        \pagenumbering{gobble}
+params:
+  analysis: "behavior"
+  part: "contrasts"
+  table_no: 6
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+# Posterior contrasts (part = "contrasts") or sampling-period predicted
+# probabilities (part = "periods") from the full model, for substrate use
+# (Supplementary Tables 2 and 3) or behavioral responses (Supplementary
+# Tables 6 and 5). Reads the cached marginaleffects outputs saved
+# by stats_v02.qmd. Rendered by scripts/render_supplementary_tables.R
+
+library(knitr)
+options(kableExtra.latex.load_packages = FALSE)
+library(kableExtra)
+
+root <- rprojroot::find_root(rprojroot::is_rstudio_project)
+proc <- file.path(root, "data/processed")
+
+analysis <- params$analysis
+
+if (analysis == "behavior") {
+  # the ggbeh*.RDS caches are lists with $plot and $data
+  contr <- list(
+    "Food substrate" = readRDS(file.path(proc, "ggbeh1.RDS"))$data,
+    "Number of legs" = readRDS(file.path(proc, "ggbeh4.RDS"))$data,
+    "Sensory leg condition" = readRDS(file.path(proc, "ggbeh5.RDS"))$data
+  )
+  preds <- as.data.frame(readRDS(file.path(proc, "ggbeh2.RDS"))$data)
+  response_labels <- c(
+    Bobbing = "Bobbing", Chemicalrelease = "Chemical release",
+    Escape = "Escape", Flee = "Flee", Freeze = "Freeze"
+  )
+  response_title <- "Behavior"
+} else {
+  # the *_contrast.rds caches store the contrast data inside the ggplot
+  contr <- list(
+    "Food substrate" = readRDS(file.path(proc, "food_substrate_contrast.rds"))$plot$data,
+    "Experimental phase" = readRDS(file.path(proc, "phase_contrast.rds"))$plot$data,
+    "Number of legs" = readRDS(file.path(proc, "number_of_legs_contrast.rds"))$plot$data,
+    "Sensory leg condition" = readRDS(file.path(proc, "sensory_leg_missing_contrast.rds"))$plot$data
+  )
+  preds <- as.data.frame(readRDS(file.path(proc, "ggsub1.RDS"))$data)
+  response_labels <- c(other_substrate = "Other substrate", rock = "Rock", sand = "Sand")
+  response_title <- "Substrate"
+}
+
+contrast_labels <- function(x) {
+  x <- gsub("Sensory_missing - Both_sensory_present",
+            "sensory leg(s) missing $-$ both present", x)
+  x <- gsub("training - acclimation", "training $-$ acclimation", x)
+  x <- gsub("sand - rock", "sand $-$ rock", x)
+  x <- gsub("^([0-9]) - ([0-9])$", "\\1 legs $-$ \\2 legs", x)
+  x
+}
+
+fmt_ci <- function(est, lo, hi) {
+  # avoid printing tiny negative values as "-0.000"
+  gsub("-0\\.000", "0.000", sprintf("%.3f [%.3f, %.3f]", est, lo, hi))
+}
+
+ctab <- do.call(rbind, lapply(names(contr), function(p) {
+  d <- as.data.frame(contr[[p]])
+  d <- d[order(d$group, d$contrast), ]
+  data.frame(
+    predictor = p,
+    contrast = contrast_labels(d$contrast),
+    response = unname(response_labels[as.character(d$group)]),
+    estimate = fmt_ci(d$estimate, d$conf.low, d$conf.high),
+    excl = ifelse(d$conf.low > 0 | d$conf.high < 0, "*", "")
+  )
+}))
+
+# predicted probabilities: one row per sampling period, one column per response
+preds$cell <- fmt_ci(preds$estimate, preds$conf.low, preds$conf.high)
+ptab <- reshape(
+  preds[, c("sampling_period", "group", "cell")],
+  idvar = "sampling_period", timevar = "group", direction = "wide"
+)
+names(ptab) <- c("Sampling period", unname(response_labels[sub("^cell\\.", "", names(ptab)[-1])]))
+ptab <- ptab[order(as.numeric(as.character(ptab$`Sampling period`))), ]
+
+what <- switch(
+  analysis,
+  behavior = "the probability of each behavioral response to the aversive stimulus",
+  substrate = "the probability of using each substrate"
+)
+model_desc <- switch(
+  analysis,
+  behavior = "full multivariate Bernoulli mixed model of behavioral responses",
+  substrate = "full additive categorical mixed model of substrate use"
+)
+```
+
+```{r}
+#| eval: !expr params$part == "contrasts"
+ctab_out <- ctab[, c("contrast", "response", "estimate", "excl")]
+
+kbl(
+  ctab_out,
+  format = "latex",
+  booktabs = TRUE,
+  longtable = TRUE,
+  linesep = "",
+  escape = FALSE,
+  row.names = FALSE,
+  align = c("l", "l", "r", "l"),
+  col.names = c("Contrast", response_title, "Estimate [95\\% CrI]", ""),
+  caption = paste0(
+    "\\textbf{Supplementary Table ", params$table_no, ".} ",
+    "Posterior average contrasts in ", what,
+    " from the ", model_desc,
+    ", averaged over the observed values of all other predictors."
+  )
+) |>
+  kable_styling(latex_options = c("hold_position", "repeat_header"), font_size = 9) |>
+  pack_rows(index = table(factor(ctab$predictor, levels = unique(ctab$predictor)))) |>
+  footnote(
+    general = paste0(
+      "Estimates are posterior means of the difference in predicted probability ",
+      "(e.g., 0.10 = 10 percentage points) with 95\\\\% credible intervals (CrI). ",
+      "* 95\\\\% CrI excludes zero. Food substrate refers to the substrate on which food ",
+      "(rewarding stimulus) was presented."
+    ),
+    threeparttable = TRUE,
+    escape = FALSE,
+    general_title = "Note."
+  )
+```
+
+```{r}
+#| eval: !expr params$part == "periods"
+kbl(
+  ptab,
+  format = "latex",
+  booktabs = TRUE,
+  longtable = TRUE,
+  linesep = "",
+  escape = FALSE,
+  row.names = FALSE,
+  align = c("c", rep("r", ncol(ptab) - 1)),
+  caption = paste0(
+    "\\textbf{Supplementary Table ", params$table_no, ".} ",
+    "Posterior predicted probabilities [95\\% CrI] of ",
+    sub("^the probability of ", "", what),
+    " across sampling periods (modeled as a monotonic effect) from the ", model_desc,
+    ", averaged over the observed values of all other predictors."
+  )
+) |>
+  kable_styling(latex_options = c("hold_position", "repeat_header"), font_size = 9)
+```

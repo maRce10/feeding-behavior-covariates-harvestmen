@@ -1,0 +1,50 @@
+cff-version: 1.2.0
+message: >-
+  If you use this code or data, please cite this archive. Once the accompanying
+  paper is published, please cite the paper as well.
+title: >-
+  Code and data for "Toward welfare indicators: leg condition and aversive
+  stimuli modulate defensive behavior in Opiliones"
+type: software
+authors:
+  - family-names: O'Brien
+    given-names: Shannon L.
+    affiliation: Animal Welfare Science Program, Lincoln Park Zoo, Chicago IL, USA
+    orcid: https://orcid.org/0009-0007-9867-0596
+  - family-names: Araya-Salas
+    given-names: Marcelo
+    affiliation: Neuroscience Research Center, University of Costa Rica, San Jose, Costa Rica
+    email: marcelo.araya@ucr.ac.cr
+    orcid: https://orcid.org/0000-0003-3594-619X
+  - family-names: Skelly
+    given-names: Noah
+    affiliation: Department of Biological Sciences, University of Illinois Chicago, Chicago IL, USA
+    orcid: https://orcid.org/0009-0008-8739-4706
+  - family-names: Herrera Palencia
+    given-names: Dulce M.
+    affiliation: Universidad de San Carlos de Guatemala, Guatemala City, Guatemala
+    orcid: https://orcid.org/0009-0004-9033-4166
+  - family-names: Escalante
+    given-names: Ignacio
+    affiliation: Department of Biological Sciences, University of Illinois Chicago, Chicago IL, USA
+    email: iem@uic.edu
+    orcid: https://orcid.org/0000-0003-1919-4303
+version: 1.0.0
+license: MIT
+repository-code: https://github.com/maRce10/feeding-behavior-covariates-harvestmen
+url: https://marce10.github.io/feeding-behavior-covariates-harvestmen/
+abstract: >-
+  Data, code and analysis reports for Bayesian mixed models of substrate use and
+  defensive behavior in Prionostemma sp. 1 harvestmen (Opiliones) with different
+  leg conditions exposed to an aversive stimulus paired with one substrate and a
+  rewarding stimulus (food) on another.
+keywords:
+  - animal welfare
+  - welfare indicators
+  - Opiliones
+  - harvestmen
+  - autotomy
+  - defensive behavior
+  - associative learning
+  - brms
+# Add a DOI (e.g., Zenodo release) and, after acceptance, the paper as preferred-citation.

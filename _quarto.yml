@@ -1,0 +1,37 @@
+project:
+  type: website
+  output-dir: _site
+  render:
+    - index.qmd
+    - scripts/stats_v02.qmd
+  resources:
+    - output/supplementary_tables.pdf
+
+execute:
+  freeze: auto
+
+website:
+  title: "Welfare indicators in Opiliones"
+  site-url: https://marce10.github.io/feeding-behavior-covariates-harvestmen/
+  repo-url: https://github.com/maRce10/feeding-behavior-covariates-harvestmen
+  page-navigation: true
+  navbar:
+    background: "#ffffff"
+    foreground: "#408AB4"
+    left:
+      - href: index.qmd
+        text: Home
+      - href: scripts/stats_v02.qmd
+        text: Statistical analysis
+      - href: output/supplementary_tables.pdf
+        text: Supplementary tables (PDF)
+    right:
+      - icon: github
+        href: https://github.com/maRce10/feeding-behavior-covariates-harvestmen
+        aria-label: GitHub repository
+
+format:
+  html:
+    theme: cosmo
+    css: styles.css
+    include-after-body: _figure-download.html

@@ -1,0 +1,25 @@
+---
+title: "Toward welfare indicators: leg condition and aversive stimuli modulate defensive behavior in Opiliones"
+subtitle: "Code and data"
+author: "Shannon L. O'Brien, Marcelo Araya-Salas, Noah Skelly, Dulce M. Herrera Palencia, Ignacio Escalante"
+toc: false
+---
+
+This site contains the analyses behind the manuscript (in preparation). We exposed field-collected *Prionostemma* sp. 1 harvestmen (Opiliones) with different leg conditions to a brief aversive stimulus paired with one substrate (rock or sand) and a rewarding stimulus (food) on the other. We then modeled their substrate use and their defensive responses (flee, escape, bobbing, chemical release and freeze) with Bayesian mixed models fitted in [brms](https://paul-buerkner.github.io/brms/). Candidate models were compared with approximate leave-one-out cross-validation, and effects were estimated as posterior contrasts in predicted probabilities with [marginaleffects](https://marginaleffects.com/).
+
+## Analysis report
+
+- **[Statistical analysis](scripts/stats_v02.qmd)**: data preparation, candidate models, model selection and posterior contrasts for substrate use and defensive behavior (Figs. 2–5)
+- **[Supplementary tables](output/supplementary_tables.pdf)** (PDF): model selection results and posterior estimates (Supplementary Tables 1–6)
+
+## Main results
+
+::: {.figure-gallery}
+![Posterior predicted probabilities of substrate use across sampling periods.](output/figures/fig2_substrate_use_by_sampling_period.png)
+
+![Posterior predicted probabilities of defensive behaviors across sampling periods.](output/figures/fig4_behavior_by_sampling_period.png)
+:::
+
+## Reproducibility
+
+All code and data are available in the [GitHub repository](https://github.com/maRce10/feeding-behavior-covariates-harvestmen). See the repository README for the folder structure and for the model fits, which are too large to be hosted on GitHub.

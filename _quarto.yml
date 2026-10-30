@@ -6,6 +6,7 @@ project:
     - scripts/stats_v02.qmd
   resources:
     - output/supplementary_tables.pdf
+    - media/
 
 execute:
   freeze: auto

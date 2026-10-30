@@ -21,6 +21,9 @@ scripts/rsconnect/
 scripts/stats.qmd
 data/raw/data_v01.xlsx
 
+# full-resolution video (a compressed copy for the website is in media/)
+data/raw/*.mp4
+
 # unpublished manuscript drafts
 manuscript/
 

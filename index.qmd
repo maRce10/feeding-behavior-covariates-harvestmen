@@ -7,6 +7,17 @@ toc: false
 
 This site contains the analyses behind the manuscript (in preparation). We exposed field-collected *Prionostemma* sp. 1 harvestmen (Opiliones) with different leg conditions to a brief aversive stimulus paired with one substrate (rock or sand) and a rewarding stimulus (food) on the other. We then modeled their substrate use and their defensive responses (flee, escape, bobbing, chemical release and freeze) with Bayesian mixed models fitted in [brms](https://paul-buerkner.github.io/brms/). Candidate models were compared with approximate leave-one-out cross-validation, and effects were estimated as posterior contrasts in predicted probabilities with [marginaleffects](https://marginaleffects.com/).
 
+## Video
+
+```{=html}
+<video controls preload="metadata" playsinline poster="media/opiliones_welfare_video_poster.jpg" style="width: 100%; border-radius: 4px;">
+  <source src="media/opiliones_welfare_video.mp4" type="video/mp4">
+  Your browser does not support embedded video. <a href="media/opiliones_welfare_video.mp4">Download the video</a>.
+</video>
+```
+
+Defensive responses of *Prionostemma* sp. 1 harvestmen to the aversive stimulus (a gentle squeeze of the abdomen) during training trials at La Selva, Costa Rica (January 2026). After the stimulus, each individual was released on the substrate paired with the aversive stimulus, and its behavior was recorded for 5 s. The clips show examples of freezing, fleeing, and fleeing combined with bobbing.
+
 ## Analysis report
 
 - **[Statistical analysis](scripts/stats_v02.qmd)**: data preparation, candidate models, model selection and posterior contrasts for substrate use and defensive behavior (Figs. 2–5)
